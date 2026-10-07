@@ -1,111 +1,41 @@
-<img src="https://github.com/pydio/cells/wiki/images/PydioCellsColor.png" width="400" />
+# b4moss / cells
 
-[Homepage](https://pydio.com/) | [Dev Guide](https://pydio.com/en/docs/developer-guide) | [GitHub-Repository](https://github.com/pydio/cells) |
-[Issue-Tracker](https://github.com/pydio/cells/issues)
+[Pydio Cells](https://github.com/pydio/cells) の **b4moss フォーク**です。継続利用とローカル改善のために保守しています。
 
-[![License Badge](https://img.shields.io/badge/License-AGPL%203%2B-blue.svg)](LICENSE)
-[![GoDoc](https://godoc.org/github.com/pydio/cells/v5?status.svg)](https://godoc.org/github.com/pydio/cells/v5)
-[![Go Report Card](https://goreportcard.com/badge/github.com/pydio/cells/v5?rand=6)](https://goreportcard.com/report/github.com/pydio/cells/v5)
+b4moss が継続利用のために保守しているサードパーティフォークは、現時点で次の 2 つです。
 
-**-------------**  
-**WORK IN PROGRESS - CELLS V5 - USE THIS BRANCH AT YOUR OWN RISKS**  
-**-------------**
+- [`b4moss/gitea`](https://github.com/b4moss/gitea)
+- [`b4moss/cells`](https://github.com/b4moss/cells)（本リポジトリ）
 
-Pydio Cells is the nextgen file sharing platform for organizations. It is a full rewrite of the Pydio project using the Go language following a micro-service architecture.
+製品の機能・インストール・開発手順などの公式情報は、上流の README を参照してください。
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/pydio/cells-dist/master/resources/v4.0.0/home.png" width="600" style="border: 3px solid #e0e0e0; border-radius: 5px;"/>
-</p>
+- 上流リポジトリ: [pydio/cells](https://github.com/pydio/cells)
+- 上流 README: [pydio/cells README](https://github.com/pydio/cells/blob/main/README.md)
 
-## Getting Started
+## バージョン付け（リリースタグ）
 
-These instructions will get you a copy of the project up and running on your local machine for **development** and testing purposes. See the [Deployment section below](#pre-built-binaries) for notes on how to deploy the project on a live system.
+b4moss がこのフォークをリリースするときのタグ形式は、次のとおりです。
 
-### A - Prerequisites
-
-The following elements are required to compile and run Pydio Cells on your machine:
-
-- Go language **v1.21** or higher and a [correctly configured](https://golang.org/doc/install#testing) Go toolchain,
-- MySQL database 5.6 or higher (or MariaDB equivalent).
-
-_Note: We have developed and tested Pydio Cells on macOS, Ubuntu, Debian and CentOS. Windows version might still have unknown glitches and is not yet supported._
-
-### B - Build From Sources
-
-Assuming that your system meets the above prerequisites, building the **Pydio Cells** backend from the source code is quite straightforward:
-
-```sh
-# Retrieve the code
-git clone https://github.com/pydio/cells
-# Enter cells directory
-cd cells
-# Build your binary
-make dev
+```text
+{original_version}-b4m{our_version}
 ```
 
-### C - Configure Environment
+例（形式の説明のみ。実在するリリースタグを示すものではありません）: `5.1.0-b4m1`
 
-To have the environment running, you must also:
+| 部分 | 意味 |
+| --- | --- |
+| `{original_version}` | ベースにした上流バージョン |
+| `{our_version}` | このフォーク系列における b4moss 側のリリースカウンタ（単調増加） |
 
-- Create a database in your chosen DB server,
-- Run the Pydio Cells installer that will guide you through the necessary steps: you might refer to the [official documentation](https://docs.pydio.com/cells-v4/admin-guide/quick-start/cells-installation/index/) for additional information.
+`{our_version}` は SemVer（major.minor.patch）ではありません。`b4m` 以降に major.minor.patch 形式を要求しません。
 
+### タグと追従ブランチ
 
-```sh
-./cells configure
-```
+- **追従・追跡ブランチ**: 上流のベースラインを追うためのブランチ（例: 特定の上流版に追従する作業ブランチ）
+- **リリースタグ**: b4moss としてのリリース時点を示すタグ（上記の `{original_version}-b4m{our_version}`）
 
-### D - Start Server
+ブランチとタグは役割を分けて扱います。追従ブランチ名とリリースタグを混同しないでください。
 
-```sh
-./cells start
-```
-Access the default site https://localhost:8080/ and you are good to go. Learn more about Cells features 
-and advanced configuration in the [Documentation](https://pydio.com/en/docs).
+### 既存タグについて
 
-## Running the tests
-
-To run the tests, simply do
-
-```sh
-go test -v ./...
-```
-
-## Running with live reload
-First install [air](https://github.com/air-verse/air)
-`go install github.com/air-verse/air@latest`
-Run with live reload
-```sh
-air -c .air.toml
-```
-
-Please read the [CONTRIBUTING.md](CONTRIBUTING.md) document if you wish to add more tests or contribute to the code.
-
-## Pre-built Binaries
-
-Binaries are currently provided for [Linux, macOS and Windows distributions](https://pydio.com/en/download). To deploy them on a live system, please see the [Installation Guide](https://docs.pydio.com/cells-v4/admin-guide/quick-start/cells-installation/index/) instructions.
-
-
-## Contributing
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests to us. You can find a comprehensive [Developer Guide](https://pydio.com/en/docs/developer-guide) on our website. Our online docs are open-source as well, feel free to improve them by contributing!
-
-We are also looking for help to translate the Cells interface in various languages.
-It is really easy to participate: just navigate to [our page in the Crowdin translation tool](https://crowdin.com/project/pydio-cells), create an account and get started.
-
-Pydio Cells uses many open-source libraries. The most important ones are listed below, please see [DEPENDENCIES](DEPENDENCIES) for an exhaustive list of other libs and their licenses.
-
-## Versioning & Branches
-
-Please note that git main branch moved from `master` for Cells v1 to v3 (vendoring, no modules) to `main` for Cells v4 (go modules).
-
-We use [Semantic Versioning](http://semver.org/). For all available versions, see the [release list](https://github.com/pydio/cells/releases).
-
-## Authors
-
-See the list of [contributors](https://github.com/pydio/cells/graphs/contributors) who participated in this project. Pydio Cells is also a continuation of the Pydio project and many contributions were ported from [pydio-core](https://github.com/pydio/pydio-core) to the code that can be found under `frontend/assets`.
-
-## License
-
-This project is licensed under the AGPLv3 License - see the [LICENSE](LICENSE) file for more details.
-
+本リポジトリには、上流と同様の見た目のタグ（例: `v5.1.0`）が残っている場合があります。上記の `{original_version}-b4m{our_version}` は **今後の目標スキーム**です。既存タグの付け直しや履歴の書き換えは行いません。
