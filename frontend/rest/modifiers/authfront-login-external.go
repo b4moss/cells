@@ -75,6 +75,10 @@ func LoginExternalAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddlewa
 
 		out.RedirectTo = redirectURL + "?code=" + code + "&state=" + requestURLValues.Get("state")
 
+		// Sliding 36h remember on each successful re-SSO.
+		extendFrontSessionRemember(session)
+		_ = setHydraRememberCookie(req, rsp, login.GetSessionID())
+
 		return middleware(req, rsp, in, out, session)
 	}
 }

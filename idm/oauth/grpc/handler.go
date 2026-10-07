@@ -162,6 +162,11 @@ func (h *Handler) AcceptLogin(ctx context.Context, in *pauth.AcceptLoginRequest)
 	p.ID = in.Challenge
 	p.RequestedAt = time.Now().UTC()
 	p.AuthenticatedAt = sqlxx.NullTime(p.RequestedAt)
+	// Spike: keep IdP login remembered for ≥36h and slide on re-SSO.
+	// AcceptLoginRequest proto has no Remember fields, so hardcode here.
+	p.Remember = true
+	p.RememberFor = 36 * 60 * 60 // 129600 seconds
+	p.ExtendSessionLifespan = true
 
 	f, err := flowctx.Decode[flow.Flow](ctx, reg.FlowCipher(), in.Challenge, flowctx.AsLoginChallenge)
 	if err != nil {
@@ -244,9 +249,10 @@ func (h *Handler) CreateConsent(ctx context.Context, in *pauth.CreateConsentRequ
 	}
 
 	if err := reg.ConsentManager().ConfirmLoginSession(ctx, &flow.LoginSession{
-		ID:       session.LoginRequest.SessionID.String(),
-		Subject:  session.Subject,
-		Remember: session.Remember,
+		ID:              session.LoginRequest.SessionID.String(),
+		Subject:         session.Subject,
+		Remember:        session.Remember,
+		AuthenticatedAt: session.AuthenticatedAt,
 	}); err != nil {
 		return nil, err
 	}
