@@ -183,7 +183,9 @@ func mapConfigValues(rootURL string, values kv.Values) kv.Values {
 	_ = val.Val(hconf.KeyLogLevel).Set("trace")
 	_ = val.Val("log.leak_sensitive_values").Set(true)
 
-	_ = val.Val(hconf.KeyCookieSameSiteMode).Set("Strict")
+	// Lax so RP→IdP top-level navigations (Gitea/Vaultwarden SSO) send the
+	// Hydra authentication session cookie. Strict blocked cross-site re-SSO skip.
+	_ = val.Val(hconf.KeyCookieSameSiteMode).Set("Lax")
 	return val
 }
 

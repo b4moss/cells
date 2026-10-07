@@ -72,6 +72,20 @@ func LoginPasswordAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddlewa
 			session.Values["redirect_valid_username"] = username
 			session.Values["redirect_final_to"] = out.RedirectTo
 
+			// Challenge path historically skipped FrontSession tokens, so the next
+			// OAuthLoginRouter type=external call always fell through to the password UI.
+			// Issue a Cells token as well and remember for 36h (sliding on re-SSO).
+			if token, tokenErr := auth.DefaultJWTVerifier().PasswordCredentialsToken(req.Request.Context(), username, password); tokenErr == nil {
+				session.Values["access_token"] = token.AccessToken
+				if idt := token.Extra("id_token"); idt != nil {
+					session.Values["id_token"] = idt.(string)
+				}
+				session.Values["expires_at"] = strconv.Itoa(int(token.Expiry.Unix()))
+				session.Values["refresh_token"] = token.RefreshToken
+			}
+			extendFrontSessionRemember(session)
+			_ = setHydraRememberCookie(req, rsp, login.GetSessionID())
+
 			return middleware(req, rsp, in, out, session)
 		}
 
