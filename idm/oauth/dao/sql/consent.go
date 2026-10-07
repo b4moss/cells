@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -9,6 +10,7 @@ import (
 	"github.com/ory/hydra/v2/consent"
 	"github.com/ory/hydra/v2/flow"
 	"github.com/ory/hydra/v2/oauth2/flowctx"
+	"github.com/ory/hydra/v2/x"
 	"github.com/ory/x/sqlxx"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
@@ -297,7 +299,7 @@ func FromModel(f *Flow) *flow.Flow {
 }
 
 func (c *consentDriver) AutoMigrate() error {
-	return c.DB.AutoMigrate(&Flow{})
+	return c.DB.AutoMigrate(&Flow{}, &flow.LoginSession{})
 }
 
 func (c *consentDriver) CreateConsentRequest(ctx context.Context, f *flow.Flow, req *flow.OAuth2ConsentRequest) error {
@@ -413,29 +415,54 @@ func (c *consentDriver) CountSubjectsGrantedConsentRequests(ctx context.Context,
 
 // Cookie management
 func (c *consentDriver) GetRememberedLoginSession(ctx context.Context, loginSessionFromCookie *flow.LoginSession, id string) (*flow.LoginSession, error) {
-	return loginSessionFromCookie, nil
+	if loginSessionFromCookie != nil && loginSessionFromCookie.ID == id && loginSessionFromCookie.Remember {
+		return loginSessionFromCookie, nil
+	}
+	if id == "" {
+		return nil, x.ErrNotFound
+	}
+	var s flow.LoginSession
+	tx := c.Session(ctx).Where("id = ? AND remember = ?", id, true).First(&s)
+	if tx.Error != nil {
+		return nil, x.ErrNotFound
+	}
+	return &s, nil
 }
 
 func (c *consentDriver) CreateLoginSession(ctx context.Context, session *flow.LoginSession) error {
-	//nid := c.r.NetworkID(ctx)
-	//if nid == uuid.Nil {
-	//	return errorsx.WithStack(x.ErrNotFound)
-	//}
-	//session.NID = nid
-
+	// Hydra persists the remembered row on ConfirmLoginSession (upsert).
 	return nil
 }
 
 func (c *consentDriver) DeleteLoginSession(ctx context.Context, id string) (deletedSession *flow.LoginSession, err error) {
-	return
+	var s flow.LoginSession
+	tx := c.Session(ctx).Where("id = ?", id).First(&s)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	if err := c.Session(ctx).Delete(&s).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 func (c *consentDriver) RevokeSubjectLoginSession(ctx context.Context, user string) error {
-	return nil
+	return c.Session(ctx).Where("subject = ?", user).Delete(&flow.LoginSession{}).Error
 }
 
 func (c *consentDriver) ConfirmLoginSession(ctx context.Context, loginSession *flow.LoginSession) error {
-	return nil
+	loginSession.AuthenticatedAt = sqlxx.NullTime(time.Time(loginSession.AuthenticatedAt).Truncate(time.Second))
+
+	var existing flow.LoginSession
+	tx := c.Session(ctx).Where("id = ?", loginSession.ID).First(&existing)
+	if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
+		return c.Session(ctx).Create(loginSession).Error
+	} else if tx.Error != nil {
+		return tx.Error
+	}
+	return c.Session(ctx).Model(&existing).Select(
+		"AuthenticatedAt", "Subject", "Remember", "IdentityProviderSessionID",
+	).Updates(loginSession).Error
 }
 
 func (c *consentDriver) CreateLoginRequest(ctx context.Context, req *flow.LoginRequest) (*flow.Flow, error) {

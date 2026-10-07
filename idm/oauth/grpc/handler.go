@@ -162,6 +162,11 @@ func (h *Handler) AcceptLogin(ctx context.Context, in *pauth.AcceptLoginRequest)
 	p.ID = in.Challenge
 	p.RequestedAt = time.Now().UTC()
 	p.AuthenticatedAt = sqlxx.NullTime(p.RequestedAt)
+	// Spike: keep IdP login remembered for ≥36h and slide on re-SSO.
+	// AcceptLoginRequest proto has no Remember fields, so hardcode here.
+	p.Remember = true
+	p.RememberFor = 36 * 60 * 60 // 129600 seconds
+	p.ExtendSessionLifespan = true
 
 	f, err := flowctx.Decode[flow.Flow](ctx, reg.FlowCipher(), in.Challenge, flowctx.AsLoginChallenge)
 	if err != nil {
@@ -244,9 +249,10 @@ func (h *Handler) CreateConsent(ctx context.Context, in *pauth.CreateConsentRequ
 	}
 
 	if err := reg.ConsentManager().ConfirmLoginSession(ctx, &flow.LoginSession{
-		ID:       session.LoginRequest.SessionID.String(),
-		Subject:  session.Subject,
-		Remember: session.Remember,
+		ID:              session.LoginRequest.SessionID.String(),
+		Subject:         session.Subject,
+		Remember:        session.Remember,
+		AuthenticatedAt: session.AuthenticatedAt,
 	}); err != nil {
 		return nil, err
 	}
@@ -434,6 +440,20 @@ func (h *Handler) CreateAuthCode(ctx context.Context, in *pauth.CreateAuthCodeRe
 
 	ar.SetID(session.ID)
 
+	// Propagate authorize-request nonce into the id_token. Cells rebuilds a
+	// synthetic authorize request in CreateAuthCode and historically omitted
+	// nonce; OIDC clients such as Vaultwarden reject id_tokens without it.
+	// Mirrors Hydra's workaround for https://github.com/ory/fosite/issues/530.
+	nonce := ""
+	if session.ConsentRequest != nil && session.ConsentRequest.RequestURL != "" {
+		if ru, parseErr := url.Parse(session.ConsentRequest.RequestURL); parseErr == nil {
+			nonce = ru.Query().Get("nonce")
+		}
+	}
+	if nonce != "" {
+		ar.GetRequestForm().Set("nonce", nonce)
+	}
+
 	claims := &jwt.IDTokenClaims{
 		Subject:     session.ConsentRequest.Subject,
 		Issuer:      strings.TrimRight(reg.Config().IssuerURL(ctx).String(), "/") + "/",
@@ -441,6 +461,8 @@ func (h *Handler) CreateAuthCode(ctx context.Context, in *pauth.CreateAuthCodeRe
 		AuthTime:    time.Now().UTC(),
 		RequestedAt: time.Now().UTC(),
 		Extra:       session.Session.IDToken,
+		Nonce:       nonce,
+		Audience:    []string{ar.GetClient().GetID()},
 	}
 
 	claims.Add("sid", session.ConsentRequest.LoginSessionID)
