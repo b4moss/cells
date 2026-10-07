@@ -434,6 +434,20 @@ func (h *Handler) CreateAuthCode(ctx context.Context, in *pauth.CreateAuthCodeRe
 
 	ar.SetID(session.ID)
 
+	// Propagate authorize-request nonce into the id_token. Cells rebuilds a
+	// synthetic authorize request in CreateAuthCode and historically omitted
+	// nonce; OIDC clients such as Vaultwarden reject id_tokens without it.
+	// Mirrors Hydra's workaround for https://github.com/ory/fosite/issues/530.
+	nonce := ""
+	if session.ConsentRequest != nil && session.ConsentRequest.RequestURL != "" {
+		if ru, parseErr := url.Parse(session.ConsentRequest.RequestURL); parseErr == nil {
+			nonce = ru.Query().Get("nonce")
+		}
+	}
+	if nonce != "" {
+		ar.GetRequestForm().Set("nonce", nonce)
+	}
+
 	claims := &jwt.IDTokenClaims{
 		Subject:     session.ConsentRequest.Subject,
 		Issuer:      strings.TrimRight(reg.Config().IssuerURL(ctx).String(), "/") + "/",
@@ -441,6 +455,8 @@ func (h *Handler) CreateAuthCode(ctx context.Context, in *pauth.CreateAuthCodeRe
 		AuthTime:    time.Now().UTC(),
 		RequestedAt: time.Now().UTC(),
 		Extra:       session.Session.IDToken,
+		Nonce:       nonce,
+		Audience:    []string{ar.GetClient().GetID()},
 	}
 
 	claims.Add("sid", session.ConsentRequest.LoginSessionID)
