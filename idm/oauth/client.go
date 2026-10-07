@@ -83,7 +83,14 @@ func (c clientConfigDriver) GetConcreteClient(ctx context.Context, id string) (*
 				}
 
 				ctxCli.RedirectURIs = redirectURIs
-				ctxCli.TokenEndpointAuthMethod = "none"
+				// Cells Home historically forced "none" for all static clients so the
+				// frontend/sync apps can use PKCE. Confidential clients (e.g. Gitea)
+				// keep their configured token_endpoint_auth_method when a secret is set.
+				if ctxCli.Secret == "" {
+					ctxCli.TokenEndpointAuthMethod = "none"
+				} else if ctxCli.TokenEndpointAuthMethod == "" {
+					ctxCli.TokenEndpointAuthMethod = "client_secret_post"
+				}
 				return &ctxCli, nil
 			}
 
