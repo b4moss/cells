@@ -435,9 +435,16 @@ func (c *consentDriver) CreateLoginSession(ctx context.Context, session *flow.Lo
 }
 
 func (c *consentDriver) DeleteLoginSession(ctx context.Context, id string) (deletedSession *flow.LoginSession, err error) {
+	// Issue #14 / patch 006 (c): AcceptLogout stub often yields empty SessionID.
+	if shouldSkipLoginSessionDelete(id) {
+		return nil, nil
+	}
 	var s flow.LoginSession
 	tx := c.Session(ctx).Where("id = ?", id).First(&s)
 	if tx.Error != nil {
+		if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, tx.Error
 	}
 	if err := c.Session(ctx).Delete(&s).Error; err != nil {

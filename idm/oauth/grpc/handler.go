@@ -244,7 +244,28 @@ func (h *Handler) CreateConsent(ctx context.Context, in *pauth.CreateConsentRequ
 		return nil, session.Error.ToRFCError()
 	}
 
-	if session.RequestedAt.Add(reg.Config().ConsentRequestMaxAge(ctx)).Before(time.Now()) {
+	// Issue #14 / patch 006 (a): zero RequestedAt made ConsentRequestMaxAge
+	// always fail (request_unauthorized). Prefer AuthenticatedAt / now and log.
+	maxAge := reg.Config().ConsentRequestMaxAge(ctx)
+	now := time.Now()
+	authAt := time.Time(session.AuthenticatedAt)
+	expired, effectiveRequestedAt, usedFallback := consentLoginExpired(session.RequestedAt, authAt, maxAge, now)
+	if usedFallback {
+		log.Logger(ctx).Warn("CreateConsent: RequestedAt missing; using AuthenticatedAt/now for ConsentRequestMaxAge",
+			zap.Time("requested_at", session.RequestedAt),
+			zap.Time("authenticated_at", authAt),
+			zap.Time("effective_requested_at", effectiveRequestedAt),
+			zap.Duration("consent_request_max_age", maxAge),
+		)
+	}
+	if expired {
+		log.Logger(ctx).Error("CreateConsent: login request expired for ConsentRequestMaxAge",
+			zap.Time("requested_at", session.RequestedAt),
+			zap.Time("authenticated_at", authAt),
+			zap.Time("effective_requested_at", effectiveRequestedAt),
+			zap.Duration("consent_request_max_age", maxAge),
+			zap.Time("now", now),
+		)
 		return nil, errors.WithStack(fosite.ErrRequestUnauthorized.WithDebug("The login request has expired, please try again."))
 	}
 
@@ -536,6 +557,7 @@ func (h *Handler) AcceptLogout(ctx context.Context, in *pauth.AcceptLogoutReques
 		return nil, errors.WithStack(err)
 	}
 
+	// Issue #14 / patch 006 (c): DeleteLoginSession no-ops empty/missing ids.
 	if _, err := reg.ConsentManager().DeleteLoginSession(ctx, logout.SessionID); err != nil {
 		return nil, errors.WithStack(err)
 	}

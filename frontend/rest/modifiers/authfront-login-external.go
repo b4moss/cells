@@ -91,6 +91,11 @@ func LoginExternalAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddlewa
 
 		login, code, err := jwtVerifier.LoginChallengeCode(ctx, claims, auth.SetChallenge(challenge))
 		if err != nil {
+			// Issue #14 / patch 006 (b): do not mutate FrontSession tokens on
+			// CreateConsent/LoginChallengeCode failure — caller keeps the Cells
+			// session so a failed Gitea SSO does not force password re-entry
+			// for file.b4m.jp itself (logout is a separate AuthInfo type).
+			log.Logger(ctx).Warn("LoginExternalAuth LoginChallengeCode failed", zap.Error(err))
 			return err
 		}
 
