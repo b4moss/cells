@@ -26,12 +26,14 @@ import (
 
 	restful "github.com/emicklei/go-restful/v3"
 	"github.com/gorilla/sessions"
+	"go.uber.org/zap"
 
 	"github.com/pydio/cells/v5/common/auth"
 	"github.com/pydio/cells/v5/common/auth/hydra"
 	pauth "github.com/pydio/cells/v5/common/proto/auth"
 	"github.com/pydio/cells/v5/common/proto/rest"
 	"github.com/pydio/cells/v5/common/service/frontend"
+	"github.com/pydio/cells/v5/common/telemetry/log"
 	"github.com/pydio/cells/v5/idm/oauth"
 )
 
@@ -82,9 +84,13 @@ func LoginPasswordAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddlewa
 				}
 				session.Values["expires_at"] = strconv.Itoa(int(token.Expiry.Unix()))
 				session.Values["refresh_token"] = token.RefreshToken
+			} else {
+				log.Logger(req.Request.Context()).Warn("challenge login: PasswordCredentialsToken failed; re-SSO refresh fallback may be unavailable", zap.Error(tokenErr))
 			}
 			extendFrontSessionRemember(session)
-			_ = setHydraRememberCookie(req, rsp, login.GetSessionID())
+			if cerr := setHydraRememberCookie(req, rsp, login.GetSessionID()); cerr != nil {
+				log.Logger(req.Request.Context()).Warn("setHydraRememberCookie failed", zap.Error(cerr))
+			}
 
 			return middleware(req, rsp, in, out, session)
 		}
