@@ -23,17 +23,24 @@ package modifiers
 import (
 	"errors"
 	"net/url"
+	"strconv"
+	"time"
 
 	restful "github.com/emicklei/go-restful/v3"
 	"github.com/gorilla/sessions"
+	"go.uber.org/zap"
 
 	"github.com/pydio/cells/v5/common/auth"
+	"github.com/pydio/cells/v5/common/auth/claim"
+	"github.com/pydio/cells/v5/common/auth/hydra"
 	"github.com/pydio/cells/v5/common/proto/rest"
 	"github.com/pydio/cells/v5/common/service/frontend"
+	"github.com/pydio/cells/v5/common/telemetry/log"
 	"github.com/pydio/cells/v5/idm/oauth"
 )
 
-// LoginExternalAuth allows users having a valid Cells session to create an authorization code directly
+// LoginExternalAuth allows users having a valid Cells session to create an authorization code directly.
+// If the FrontSession access_token is missing or expired, refresh_token is used (Issue #7 / 36h re-SSO).
 func LoginExternalAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddleware {
 	return func(req *restful.Request, rsp *restful.Response, in *frontend.FrontSessionWithRuntimeCtx, out *rest.FrontSessionResponse, session *sessions.Session) error {
 		if a, ok := in.AuthInfo["type"]; !ok || a != "external" { // Ignore this middleware
@@ -45,15 +52,41 @@ func LoginExternalAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddlewa
 			return errors.New("Challenge is required")
 		}
 
-		accessToken, ok := session.Values["access_token"]
-		if !ok {
-			return errors.New("Access token is required")
-		}
 		ctx := req.Request.Context()
 		jwtVerifier := auth.DefaultJWTVerifier()
-		_, claims, err := jwtVerifier.Verify(ctx, accessToken.(string))
-		if err != nil {
-			return err
+
+		var claims claim.Claims
+		accessToken, hasAccess := session.Values["access_token"].(string)
+		if hasAccess && accessToken != "" {
+			var err error
+			_, claims, err = jwtVerifier.Verify(ctx, accessToken)
+			if err != nil {
+				hasAccess = false
+			}
+		} else {
+			hasAccess = false
+		}
+
+		if !hasAccess {
+			refreshToken, hasRefresh := session.Values["refresh_token"].(string)
+			if !hasRefresh || refreshToken == "" {
+				return errors.New("Access token is required")
+			}
+			token, rerr := hydra.Refresh(ctx, refreshToken)
+			if rerr != nil {
+				log.Logger(ctx).Warn("LoginExternalAuth refresh failed", zap.Error(rerr))
+				return rerr
+			}
+			session.Values["access_token"] = token.AccessToken
+			session.Values["id_token"] = token.IDToken
+			session.Values["refresh_token"] = token.RefreshToken
+			session.Values["expires_at"] = strconv.Itoa(int(time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix()))
+			accessToken = token.AccessToken
+			var err error
+			_, claims, err = jwtVerifier.Verify(ctx, accessToken)
+			if err != nil {
+				return err
+			}
 		}
 
 		login, code, err := jwtVerifier.LoginChallengeCode(ctx, claims, auth.SetChallenge(challenge))
@@ -77,7 +110,9 @@ func LoginExternalAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddlewa
 
 		// Sliding 36h remember on each successful re-SSO.
 		extendFrontSessionRemember(session)
-		_ = setHydraRememberCookie(req, rsp, login.GetSessionID())
+		if cerr := setHydraRememberCookie(req, rsp, login.GetSessionID()); cerr != nil {
+			log.Logger(ctx).Warn("setHydraRememberCookie failed", zap.Error(cerr))
+		}
 
 		return middleware(req, rsp, in, out, session)
 	}
