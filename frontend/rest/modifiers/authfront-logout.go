@@ -21,8 +21,11 @@
 package modifiers
 
 import (
+	"strings"
+
 	restful "github.com/emicklei/go-restful/v3"
 	"github.com/gorilla/sessions"
+	"go.uber.org/zap"
 
 	"github.com/pydio/cells/v5/common"
 	"github.com/pydio/cells/v5/common/auth"
@@ -30,6 +33,7 @@ import (
 	"github.com/pydio/cells/v5/common/proto/idm"
 	"github.com/pydio/cells/v5/common/proto/rest"
 	"github.com/pydio/cells/v5/common/service/frontend"
+	"github.com/pydio/cells/v5/common/telemetry/log"
 )
 
 func LogoutAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddleware {
@@ -53,7 +57,13 @@ func LogoutAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddleware {
 		v := auth.DefaultJWTVerifier()
 		_, cl, err := v.Verify(ctx, accessToken.(string))
 		if err != nil {
-			return err
+			// Issue #14 / patch 006 (b): expired access during logout must not
+			// block clearing the FrontSession (otherwise client shows login
+			// while cookie remnants confuse the next SSO attempt).
+			log.Logger(ctx).Warn("LogoutAuth: access token verify failed; clearing FrontSession", zap.Error(err))
+			session.Values = make(map[interface{}]interface{})
+			session.Options.MaxAge = 0
+			return middleware(req, rsp, in, out, session)
 		}
 
 		// Send Event
@@ -63,7 +73,13 @@ func LogoutAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddleware {
 		})
 
 		if err := v.Logout(ctx, req.Request.URL.String(), cl.Subject, cl.SessionID, auth.SetAccessToken(accessToken.(string)), auth.SetRefreshToken(refreshToken.(string))); err != nil {
-			return err
+			// Issue #14 / patch 006 (b)(c): AcceptLogout "record not found" is
+			// idempotent — still clear FrontSession so a failed Gitea SSO
+			// cleanup does not leave the UI stuck on a 500 session error.
+			if !isLogoutRecordNotFound(err) {
+				return err
+			}
+			log.Logger(ctx).Warn("LogoutAuth: Hydra logout record not found; clearing FrontSession", zap.Error(err))
 		}
 
 		// TODO - need to properly logout in hydra
@@ -72,4 +88,12 @@ func LogoutAuth(middleware frontend.AuthMiddleware) frontend.AuthMiddleware {
 
 		return middleware(req, rsp, in, out, session)
 	}
+}
+
+func isLogoutRecordNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "record not found") || strings.Contains(msg, "not found")
 }
